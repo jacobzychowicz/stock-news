@@ -1,6 +1,6 @@
-# Stock-News (GDELT)
+# Stock News
 
-CLI tool that pulls recent news about a stock/company from the GDELT 2.1 Doc API, filters to English by default, and lists matching articles. I will be adding an interface, and other tools in the future.
+CLI tool that pulls recent news about a stock/company from the GDELT 2.1 Doc API, filters to English by default, and lists matching articles. I will be adding an interface, other tools and other APIs in the future.
 
 ## Quick start (PowerShell)
 ```powershell
@@ -17,6 +17,6 @@ More examples:
 - Uses GDELT; no API key required. Be polite with request volume.
 - English-only filter is applied via `sourcelang:english`; use `--allow-non-english` to disable.
 - `-d/--days` defaults to 3; set `0` to search all available history.
-- `-l/--limit` capped at 250 (GDELT max for this endpoint).
+- `-l/--limit` capped at 250 (GDELT max).
 - Keywords must be at least 3 characters (GDELT restriction).
 
