@@ -31,6 +31,31 @@ def _normalize_term(term: str) -> str:
     return term
 
 
+def normalize_keywords(raw_keywords: Sequence[str] | None) -> tuple[list[str], list[str]]:
+    """
+    Split comma-separated keywords, trim, drop empties, and collect too-short ones.
+    Returns (usable_keywords, skipped_keywords).
+    """
+    if not raw_keywords:
+        return [], []
+
+    usable: list[str] = []
+    skipped: list[str] = []
+
+    for item in raw_keywords:
+        parts = item.split(",")
+        for part in parts:
+            kw = part.strip()
+            if not kw:
+                continue
+            if len(kw) < MIN_KEYWORD_LEN:
+                skipped.append(kw)
+                continue
+            usable.append(kw)
+
+    return usable, skipped
+
+
 def build_query(symbol: str, keywords: Sequence[str] | None, english_only: bool = True) -> str:
     symbol = symbol.strip()
     if not symbol:
@@ -39,12 +64,6 @@ def build_query(symbol: str, keywords: Sequence[str] | None, english_only: bool 
     parts: list[str] = [f'("{symbol}" OR {symbol})']
 
     if keywords:
-        too_short = [k for k in keywords if k.strip() and len(k.strip()) < MIN_KEYWORD_LEN]
-        if too_short:
-            raise ValueError(
-                f"GDELT requires keywords to be at least {MIN_KEYWORD_LEN} characters: {too_short}"
-            )
-
         normalized = [_normalize_term(k) for k in keywords]
         normalized = [k for k in normalized if k]
         if normalized:
@@ -138,7 +157,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         action="append",
         dest="keywords",
         default=None,
-        help=f"Keyword to include (min {MIN_KEYWORD_LEN} chars per GDELT); repeatable.",
+        help="Keyword(s) to include; repeatable or comma-separated string.",
     )
     parser.add_argument(
         "-d",
@@ -166,9 +185,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
 
     try:
+        keywords, skipped = normalize_keywords(args.keywords)
+        if skipped:
+            print(
+                f"Skipping short keywords (<{MIN_KEYWORD_LEN} chars): {', '.join(skipped)}",
+                flush=True,
+            )
+
         articles = fetch_articles(
             symbol=args.symbol,
-            keywords=args.keywords,
+            keywords=keywords,
             days=args.days,
             limit=args.limit,
             english_only=not args.allow_non_english,
