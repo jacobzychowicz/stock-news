@@ -9,6 +9,7 @@ from typing import Sequence
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 MAX_RECORDS = 250
 MIN_KEYWORD_LEN = 3
+YAHOO_SEARCH_URL = "https://query1.finance.yahoo.com/v1/finance/search"
 EXAMPLE_COMMANDS = [
     'MSFT -k "guidance, investigation" -d 5 -l 40',
     '"NVIDIA" -k "ai, chips, guidance"',
@@ -64,12 +65,65 @@ def normalize_keywords(raw_keywords: Sequence[str] | None) -> tuple[list[str], l
     return usable, skipped
 
 
+def looks_like_ticker(symbol: str) -> bool:
+    """
+    Heuristic: short, uppercase-ish, no spaces. Allows dots/slashes for tickers like BRK.B.
+    """
+    sym = symbol.strip()
+    if not sym or " " in sym:
+        return False
+    if len(sym) > 6:
+        return False
+    alnumish = sym.replace(".", "").replace("-", "").replace("/", "")
+    return alnumish.isalnum()
+
+
+def expand_symbol_to_company_name(symbol: str) -> str | None:
+    """
+    Try to resolve a short ticker to a full company name via Yahoo Finance's unauthenticated search.
+    Returns a name string or None if not found/failed.
+    """
+    if not looks_like_ticker(symbol):
+        return None
+
+    requests = ensure_requests()
+    try:
+        resp = requests.get(
+            YAHOO_SEARCH_URL,
+            params={"q": symbol, "quotesCount": 1, "newsCount": 0},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    sym_upper = symbol.upper()
+    for quote in data.get("quotes", []):
+        quote_sym = (quote.get("symbol") or "").upper()
+        if quote_sym != sym_upper:
+            continue
+        name = quote.get("longname") or quote.get("shortname")
+        if name:
+            return name.strip()
+    return None
+
+
 def build_query(symbol: str, keywords: Sequence[str] | None, english_only: bool = True) -> str:
     symbol = symbol.strip()
     if not symbol:
         raise ValueError("A stock symbol or company name is required.")
 
-    parts: list[str] = [f'("{symbol}" OR {symbol})']
+    tickerish = looks_like_ticker(symbol)
+    if " " in symbol:
+        symbol_clause = f'"{symbol}"'
+    elif tickerish and len(symbol) < 5:
+        # Avoid GDELT "phrase too short" errors for short tickers
+        symbol_clause = symbol
+    else:
+        symbol_clause = f'("{symbol}" OR {symbol})'
+
+    parts: list[str] = [symbol_clause]
 
     if keywords:
         normalized = [_normalize_term(k) for k in keywords]
@@ -222,13 +276,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                 flush=True,
             )
 
-        articles = fetch_articles(
-            symbol=args.symbol,
-            keywords=keywords,
-            days=args.days,
-            limit=args.limit,
-            english_only=not args.allow_non_english,
-        )
+        def do_fetch(target_symbol: str):
+            return fetch_articles(
+                symbol=target_symbol,
+                keywords=keywords,
+                days=args.days,
+                limit=args.limit,
+                english_only=not args.allow_non_english,
+            )
+
+        try:
+            articles = do_fetch(args.symbol)
+        except RuntimeError as exc:
+            msg = str(exc).lower()
+            fallback_used = False
+            if "phrase is too short" in msg:
+                expanded = expand_symbol_to_company_name(args.symbol)
+                if expanded and expanded.lower() != args.symbol.lower():
+                    print(
+                        f'Query phrase too short for "{args.symbol}". '
+                        f'Retrying with company name "{expanded}".',
+                        flush=True,
+                    )
+                    articles = do_fetch(expanded)
+                    fallback_used = True
+            if not fallback_used:
+                raise
     except Exception as exc:  # pragma: no cover - CLI error path
         print(f"Error: {exc}")
         return 1
