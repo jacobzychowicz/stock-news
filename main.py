@@ -113,13 +113,27 @@ def fetch_articles(
 
     response = requests.get(GDELT_URL, params=params, timeout=10)
     response.raise_for_status()
+    raw_text = response.text
     try:
         data = response.json()
     except ValueError as exc:
-        snippet = response.text[:500]
-        raise RuntimeError(
-            f"Unexpected response (status {response.status_code}): {snippet}"
-        ) from exc
+        snippet = (raw_text or "").strip()
+        lower = snippet.lower()
+        if "phrase is too short" in lower:
+            hint = (
+                "GDELT rejected the query because a phrase is too short. "
+                'Try a longer company name (e.g., "Meta Platforms"), add more keywords and ensure you are using the correct stock symbol/name.'
+            )
+        elif snippet:
+            hint = f"GDELT returned non-JSON: {snippet[:300]}"
+        else:
+            hint = "GDELT returned an empty or non-JSON response."
+        raise RuntimeError(hint) from exc
+
+    if isinstance(data, dict):
+        msg = data.get("error") or data.get("message")
+        if msg:
+            raise RuntimeError(f"GDELT returned an error: {msg}")
 
     articles = data.get("articles", [])
     results = []
