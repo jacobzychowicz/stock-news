@@ -9,6 +9,14 @@ from typing import Sequence
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 MAX_RECORDS = 250
 MIN_KEYWORD_LEN = 3
+EXAMPLE_COMMANDS = [
+    'MSFT -k "guidance, investigation" -d 5 -l 40',
+    '"NVIDIA" -k "ai, chips, guidance"',
+    'AAPL -k "earnings, outlook" -d 2',
+    '"Tesla" --allow-non-english -l 15',
+    '"Bank of America" -k "downgrade, investigation" -d 10 -l 40',
+    '"Meta" -k "privacy, regulation" -d 7',
+]
 
 
 def ensure_requests():
@@ -182,7 +190,15 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    args = parse_args(argv or sys.argv[1:])
+    args_list = list(argv or sys.argv[1:])
+    if not args_list:
+        print("Try one of these commands:")
+        for example in EXAMPLE_COMMANDS:
+            print(f"  python main.py {example}")
+        print("\nUse -h/--help for full options.")
+        return 1
+
+    args = parse_args(args_list)
 
     try:
         keywords, skipped = normalize_keywords(args.keywords)
